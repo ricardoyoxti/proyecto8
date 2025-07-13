@@ -124,6 +124,15 @@ install_postgresql() {
     print_message "PostgreSQL instalado y configurado"
 }
 
+# Función para crear usuario del sistema para Odoo
+create_odoo_system_user() {
+    print_step "Creando usuario del sistema para Odoo..."
+    
+    useradd -m -d $ODOO_HOME -U -r -s /bin/bash $ODOO_USER 2>/dev/null || true
+    
+    print_message "Usuario del sistema creado"
+}
+
 # Función para configurar PostgreSQL para Odoo
 configure_postgresql_for_odoo() {
     print_step "Configurando PostgreSQL para Odoo..."
@@ -131,11 +140,33 @@ configure_postgresql_for_odoo() {
     # Crear usuario de base de datos
     sudo -u postgres createuser -s $ODOO_USER 2>/dev/null || true
     
-    # Configurar autenticación en pg_hba.conf
-    PG_VERSION=$(sudo -u postgres psql -t -c "SELECT version();" | grep -oP '\d+\.\d+' | head -1)
-    # PG_HBA_FILE="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
-    PG_HBA_FILE="/etc/postgresql/15/main/pg_hba.conf"
+    # Detectar la versión real de PostgreSQL instalada
+    PG_VERSION=$(sudo -u postgres psql -t -c "SELECT version();" | grep -oP '\d+\.\d+' | head -1 | cut -d'.' -f1)
+    print_message "Versión de PostgreSQL detectada: $PG_VERSION"
+    
+    # Buscar el archivo pg_hba.conf
+    PG_HBA_FILE=$(sudo -u postgres psql -t -c "SHOW hba_file;" | tr -d ' ')
+    
+    # Si no se puede obtener desde psql, usar la ruta estándar
+    if [[ -z "$PG_HBA_FILE" || ! -f "$PG_HBA_FILE" ]]; then
+        PG_HBA_FILE="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
+    fi
+    
     print_message "Configurando autenticación en $PG_HBA_FILE..."
+    
+    # Verificar que el archivo existe
+    if [[ ! -f "$PG_HBA_FILE" ]]; then
+        print_error "Archivo pg_hba.conf no encontrado en $PG_HBA_FILE"
+        # Buscar manualmente el archivo
+        FOUND_HBA=$(find /etc -name "pg_hba.conf" 2>/dev/null | head -1)
+        if [[ -n "$FOUND_HBA" ]]; then
+            PG_HBA_FILE="$FOUND_HBA"
+            print_message "Archivo encontrado en: $PG_HBA_FILE"
+        else
+            print_error "No se pudo encontrar el archivo pg_hba.conf"
+            exit 1
+        fi
+    fi
     
     # Hacer backup del archivo original
     cp $PG_HBA_FILE ${PG_HBA_FILE}.backup
@@ -159,15 +190,6 @@ configure_postgresql_for_odoo() {
     fi
     
     print_message "PostgreSQL configurado para Odoo"
-}
-
-# Función para crear usuario del sistema para Odoo
-create_odoo_system_user() {
-    print_step "Creando usuario del sistema para Odoo..."
-    
-    useradd -m -d $ODOO_HOME -U -r -s /bin/bash $ODOO_USER 2>/dev/null || true
-    
-    print_message "Usuario del sistema creado"
 }
 
 # Función para instalar Odoo desde fuente
@@ -209,20 +231,20 @@ install_odoo_from_source() {
 create_odoo_config() {
     print_step "Creando archivo de configuración de Odoo..."
     
-    cat > $ODOO_CONFIG_FILE << EOF
+    cat > $ODOO_CONFIG_FILE << 'EOF'
 [options]
 ; This is the password that allows database operations:
 admin_passwd = admin
 db_host = localhost
 db_port = 5432
-db_user = $ODOO_USER
+db_user = odoo
 db_password = False
-addons_path = $ODOO_HOME/odoo/addons
-data_dir = $ODOO_DATA_DIR
-logfile = $ODOO_LOG_DIR/odoo.log
+addons_path = /opt/odoo/odoo/addons
+data_dir = /var/lib/odoo
+logfile = /var/log/odoo/odoo.log
 log_level = info
-xmlrpc_port = $ODOO_PORT
-longpolling_port = $ODOO_LONGPOLL_PORT
+xmlrpc_port = 8069
+longpolling_port = 8072
 workers = 2
 max_cron_threads = 1
 without_demo = True
@@ -240,7 +262,7 @@ EOF
 create_systemd_service() {
     print_step "Creando servicio systemd para Odoo..."
     
-    cat > /etc/systemd/system/odoo.service << EOF
+    cat > /etc/systemd/system/odoo.service << 'EOF'
 [Unit]
 Description=Odoo 18 Community
 Documentation=https://www.odoo.com
@@ -251,9 +273,9 @@ Wants=postgresql.service
 Type=simple
 SyslogIdentifier=odoo
 PermissionsStartOnly=true
-User=$ODOO_USER
-Group=$ODOO_USER
-ExecStart=$ODOO_HOME/odoo-venv/bin/python $ODOO_HOME/odoo/odoo-bin -c $ODOO_CONFIG_FILE
+User=odoo
+Group=odoo
+ExecStart=/opt/odoo/odoo-venv/bin/python /opt/odoo/odoo/odoo-bin -c /etc/odoo/odoo.conf
 StandardOutput=journal+console
 Restart=always
 RestartSec=10
@@ -295,13 +317,13 @@ install_nginx() {
     
     apt install -y nginx
     
-    cat > /etc/nginx/sites-available/odoo << EOF
+    cat > /etc/nginx/sites-available/odoo << 'EOF'
 upstream odoo {
-    server 127.0.0.1:$ODOO_PORT;
+    server 127.0.0.1:8069;
 }
 
 upstream odoochat {
-    server 127.0.0.1:$ODOO_LONGPOLL_PORT;
+    server 127.0.0.1:8072;
 }
 
 server {
@@ -315,10 +337,10 @@ server {
     proxy_connect_timeout 720s;
     proxy_send_timeout 720s;
     
-    proxy_set_header X-Forwarded-Host \$host;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
     
     location / {
         proxy_redirect off;
@@ -412,7 +434,7 @@ main() {
     create_odoo_config
     create_systemd_service
     configure_firewall
-    install_nginx  # Ahora es automática
+    install_nginx
     
     # Iniciar Odoo
     print_step "Iniciando servicio Odoo..."
