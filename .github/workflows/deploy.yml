@@ -222,7 +222,9 @@ jobs:
         
         echo "🔍 Monitoreando progreso de la instalación..."
         echo "📋 Puedes ver los logs en tiempo real con:"
-        echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='sudo tail -f /var/log/startup-script.log'"
+        # echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='sudo tail -f /var/log/startup-script.log'"
+        SSH_COMMAND="gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='sudo tail -f /var/log/startup-script.log'"
+        echo "   $SSH_COMMAND"
         
         # Esperar hasta que la instalación complete
         MAX_ATTEMPTS=60  # 15 minutos máximo
