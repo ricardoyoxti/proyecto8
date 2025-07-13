@@ -2,10 +2,15 @@
 
 # Script de instalación de Odoo 18 Community con PostgreSQL
 # Compatible con Ubuntu 20.04/22.04 y Debian 11/12
-# Autor: Script de instalación automatizada
-# Fecha: $(date +%Y-%m-%d)
+# Versión automatizada para GCP startup script
 
 set -e  # Salir si hay algún error
+
+# Logging para debugging
+exec > >(tee -a /var/log/startup-script.log)
+exec 2>&1
+
+echo "=== INICIO DEL SCRIPT DE INSTALACIÓN $(date) ==="
 
 # Colores para output
 RED='\033[0;31m'
@@ -53,14 +58,6 @@ detect_os() {
         exit 1
     fi
     print_message "Sistema detectado: $OS $VER"
-}
-
-# Función para verificar si el usuario es root
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        print_error "Este script debe ejecutarse como root"
-        exit 1
-    fi
 }
 
 # Función para actualizar el sistema
@@ -277,6 +274,7 @@ configure_firewall() {
     print_step "Configurando firewall..."
     
     if command -v ufw &> /dev/null; then
+        ufw --force enable
         ufw allow $ODOO_PORT/tcp
         ufw allow $ODOO_LONGPOLL_PORT/tcp
         ufw allow ssh
@@ -291,16 +289,13 @@ configure_firewall() {
     fi
 }
 
-# Función para instalar nginx (opcional)
+# Función para instalar nginx (automática, sin interacción)
 install_nginx() {
-    read -p "¿Deseas instalar y configurar Nginx como proxy reverso? (y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_step "Instalando y configurando Nginx..."
-        
-        apt install -y nginx
-        
-        cat > /etc/nginx/sites-available/odoo << EOF
+    print_step "Instalando y configurando Nginx..."
+    
+    apt install -y nginx
+    
+    cat > /etc/nginx/sites-available/odoo << EOF
 upstream odoo {
     server 127.0.0.1:$ODOO_PORT;
 }
@@ -348,16 +343,15 @@ server {
     gzip_vary on;
 }
 EOF
-        
-        ln -sf /etc/nginx/sites-available/odoo /etc/nginx/sites-enabled/
-        rm -f /etc/nginx/sites-enabled/default
-        
-        nginx -t
-        systemctl restart nginx
-        systemctl enable nginx
-        
-        print_message "Nginx configurado como proxy reverso"
-    fi
+    
+    ln -sf /etc/nginx/sites-available/odoo /etc/nginx/sites-enabled/
+    rm -f /etc/nginx/sites-enabled/default
+    
+    nginx -t
+    systemctl restart nginx
+    systemctl enable nginx
+    
+    print_message "Nginx configurado como proxy reverso"
 }
 
 # Función para mostrar información final
@@ -392,12 +386,23 @@ show_final_info() {
     echo
 }
 
+# Función para crear archivo de estado
+create_installation_status() {
+    cat > /var/log/odoo-installation-status.log << EOF
+ODOO_INSTALLATION_STATUS=COMPLETED
+INSTALLATION_DATE=$(date)
+ODOO_VERSION=$ODOO_VERSION
+ODOO_PORT=$ODOO_PORT
+ODOO_URL=http://$(hostname -I | awk '{print $1}'):$ODOO_PORT
+EOF
+    print_message "Archivo de estado creado en /var/log/odoo-installation-status.log"
+}
+
 # Función principal
 main() {
     print_message "Iniciando instalación de Odoo 18 Community..."
     
     detect_os
-    check_root
     update_system
     install_basic_dependencies
     install_postgresql
@@ -407,25 +412,28 @@ main() {
     create_odoo_config
     create_systemd_service
     configure_firewall
-    install_nginx
+    install_nginx  # Ahora es automática
     
     # Iniciar Odoo
     print_step "Iniciando servicio Odoo..."
     systemctl start odoo
     
     # Esperar un momento para que inicie
-    sleep 5
+    sleep 10
     
     # Verificar estado
     if systemctl is-active --quiet odoo; then
         print_message "Odoo iniciado correctamente"
+        create_installation_status
     else
         print_error "Error al iniciar Odoo. Revisa los logs con: journalctl -u odoo -f"
+        exit 1
     fi
     
     show_final_info
     
     print_message "¡Instalación completada! Odoo 18 Community está listo para usar."
+    echo "=== FIN DEL SCRIPT DE INSTALACIÓN $(date) ==="
 }
 
 # Ejecutar función principal
