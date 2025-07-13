@@ -1,4 +1,3 @@
-# .github/workflows/deploy.yml
 name: 🚀 Deploy Odoo 18 to Google Cloud
 
 on:
@@ -42,6 +41,11 @@ on:
         - '30'
         - '50'
         - '100'
+      wait_for_installation:
+        description: 'Esperar hasta que la instalación complete'
+        required: false
+        default: true
+        type: boolean
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -50,6 +54,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Timeout más largo para la instalación completa
     
     steps:
     - name: 📥 Checkout code
@@ -128,6 +133,9 @@ jobs:
           --reservation-affinity=any \
           --metadata-from-file startup-script=./startup-script.sh \
           --metadata instance-name=$INSTANCE_NAME,deployment-time=$(date -u +"%Y-%m-%dT%H:%M:%SZ"),github-actor=${{ github.actor }}
+        
+        echo "INSTANCE_NAME=$INSTANCE_NAME" >> $GITHUB_ENV
+        echo "ZONE=$ZONE" >> $GITHUB_ENV
 
     - name: ⏳ Wait for instance to be ready
       run: |
@@ -153,9 +161,16 @@ jobs:
           sleep 10
         done
         
-        # Esperar un poco más para que los servicios se inicien
-        echo "⏳ Esperando que los servicios se inicien..."
-        sleep 30
+        # Esperar que SSH esté disponible
+        echo "⏳ Verificando disponibilidad de SSH..."
+        for i in {1..20}; do
+          if gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command="echo 'SSH disponible'" --ssh-flag="-o ConnectTimeout=5" &>/dev/null; then
+            echo "✅ SSH está disponible"
+            break
+          fi
+          echo "⏳ Esperando SSH... ($i/20)"
+          sleep 15
+        done
 
     - name: 🔥 Create firewall rules
       run: |
@@ -193,7 +208,8 @@ jobs:
           --target-tags=odoo-server \
           --description="Allow SSH access" || echo "SSH firewall rule already exists"
 
-    - name: 📊 Get instance details
+    - name: 🔍 Monitor installation progress
+      if: ${{ github.event.inputs.wait_for_installation == 'true' || github.event.inputs.wait_for_installation == '' }}
       run: |
         INSTANCE_NAME="${{ steps.generate_name.outputs.INSTANCE_NAME }}"
         
@@ -204,36 +220,22 @@ jobs:
           ZONE="${{ github.event.client_payload.zone || 'southamerica-west1-a' }}"
         fi
         
-        echo "🎉 Instancia creada exitosamente!"
-        echo "📍 Detalles de la instancia:"
-        gcloud compute instances describe $INSTANCE_NAME \
-          --zone=$ZONE \
-          --format="table(name,status,machineType.basename(),scheduling.preemptible.yesno(yes='Yes',no='No'):label=PREEMPTIBLE,networkInterfaces[0].accessConfigs[0].natIP:label=EXTERNAL_IP,disks[0].diskSizeGb)"
+        echo "🔍 Monitoreando progreso de la instalación..."
+        echo "📋 Puedes ver los logs en tiempo real con:"
+        echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='sudo tail -f /var/log/startup-script.log'"
         
-        echo ""
-        echo "🌐 IP Externa:"
-        EXTERNAL_IP=$(gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
-        echo "IP: $EXTERNAL_IP"
+        # Esperar hasta que la instalación complete
+        MAX_ATTEMPTS=60  # 15 minutos máximo
+        ATTEMPT=0
         
-        echo ""
-        echo "🏷️ Información del despliegue:"
-        echo "Nombre generado: $INSTANCE_NAME"
-        echo "Nombre base: ${{ steps.generate_name.outputs.BASE_NAME }}"
-        echo "Desplegado por: ${{ github.actor }}"
-        echo "Fecha: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-        
-        echo ""
-        echo "🔗 URLs de acceso:"
-        echo "Odoo: http://$EXTERNAL_IP:8069"
-        echo "SSH: gcloud compute ssh $INSTANCE_NAME --zone=$ZONE"
-        
-        echo ""
-        echo "⏳ La instalación de Odoo puede tardar entre 5-10 minutos después de que la instancia esté ejecutándose."
-        echo "📋 Credenciales por defecto:"
-        echo "  - Database: odoo"
-        echo "  - User: admin"
-        echo "  - Password: admin"
-        
-        echo ""
-        echo "🗑️ Para eliminar la instancia:"
-        echo "gcloud compute instances delete $INSTANCE_NAME --zone=$ZONE"
+        while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+          ATTEMPT=$((ATTEMPT + 1))
+          
+          echo "⏳ Verificando progreso... ($ATTEMPT/$MAX_ATTEMPTS)"
+          
+          # Verificar si el archivo de estado existe
+          if gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command="test -f /var/log/odoo-installation-status.log" &>/dev/null; then
+            echo "✅ Instalación completada!"
+            
+            # Mostrar información del estado
+            echo "📊 Esta
