@@ -225,7 +225,9 @@ jobs:
         # echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='sudo tail -f /var/log/startup-script.log'"
         # SSH_COMMAND="gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='sudo tail -f /var/log/startup-script.log'"
         # echo "   $SSH_COMMAND"
-        echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command="sudo tail -f /var/log/startup-script.log""
+        # echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command="sudo tail -f /var/log/startup-script.log""
+        echo "   gcloud compute ssh $INSTANCE_NAME --zone=$ZONE"
+        echo "   --command=\"sudo tail -f /var/log/startup-script.log\""
         
         # Esperar hasta que la instalación complete
         MAX_ATTEMPTS=60  # 15 minutos máximo
