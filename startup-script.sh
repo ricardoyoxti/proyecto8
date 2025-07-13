@@ -133,8 +133,8 @@ configure_postgresql_for_odoo() {
     
     # Configurar autenticación en pg_hba.conf
     PG_VERSION=$(sudo -u postgres psql -t -c "SELECT version();" | grep -oP '\d+\.\d+' | head -1)
-    PG_HBA_FILE="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
-    
+    # PG_HBA_FILE="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
+    PG_HBA_FILE="/etc/postgresql/15/main/pg_hba.conf"
     print_message "Configurando autenticación en $PG_HBA_FILE..."
     
     # Hacer backup del archivo original
