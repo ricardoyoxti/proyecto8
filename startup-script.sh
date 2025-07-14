@@ -106,6 +106,54 @@ install_basic_dependencies() {
         python3-wheel \
         python3-setuptools \
         python3-distutils
+
+    # Instalar TODAS las dependencias
+    sudo /opt/odoo/venv18/bin/pip install \
+    babel \
+    lxml \
+    lxml_html_clean \
+    pyOpenSSL \
+    cryptography \
+    rjsmin \
+    geoip2 \
+    chardet \
+    python-stdnum \
+    openpyxl \
+    decorator \
+    docutils \
+    ebaysdk \
+    freezegun \
+    gevent \
+    greenlet \
+    html2text \
+    Jinja2 \
+    libsass \
+    MarkupSafe \
+    num2words \
+    ofxparse \
+    passlib \
+    Pillow \
+    polib \
+    psutil \
+    psycopg2-binary \
+    pydot \
+    pyparsing \
+    PyPDF2 \
+    pyserial \
+    python-dateutil \
+    python-ldap \
+    pytz \
+    pyusb \
+    qrcode \
+    reportlab \
+    requests \
+    vobject \
+    Werkzeug \
+    xlrd \
+    xlsxwriter \
+    xlwt \
+    zeep
+
     
     # Librerías del sistema para dependencias de Python
     apt install -y \
