@@ -267,6 +267,7 @@ install_critical_python_dependencies() {
         "Cython"
         "numpy"
         "babel"
+        "psutil"
         "lxml"
         "lxml_html_clean"
         "Pillow"
@@ -379,13 +380,14 @@ install_odoo_from_source() {
     # Verificar instalación de dependencias críticas
     print_message "Verificando instalación de dependencias críticas..."
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import babel; print(\"babel OK\")'" || print_warning "babel no instalado correctamente"
-    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import lxml; print(\"lxml OK\")'" || print_warning "lxml no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import lxml; print(\"lxml OK\")'" || print_warning "lxml no instalado correctamente0"000000
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import lxml_html_clean; print(\"lxml_html_clean OK\")'" || print_warning "lxml_html_clean no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import psutil; print(\"lxml_html_clean OK\")'" || print_warning "lxml_html_clean no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import PIL; print(\"Pillow OK\")'" || print_warning "Pillow no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import psycopg2; print(\"psycopg2 OK\")'" || print_warning "psycopg2 no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import reportlab; print(\"reportlab OK\")'" || print_warning "reportlab no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import requests; print(\"requests OK\")'" || print_warning "requests no instalado correctamente"
-    
+   
     # Crear directorios necesarios
     mkdir -p $ODOO_LOG_DIR
     mkdir -p $ODOO_DATA_DIR
