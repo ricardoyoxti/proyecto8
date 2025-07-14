@@ -271,6 +271,10 @@ if ! sudo -u $ODOO_USER "$ODOO_HOME/venv/bin/pip" install \
         "babel"
         "rjsmin"
         "rcssmin"
+        "pyOpenSSL"
+        "cffi"
+        "pycparser"
+        "cryptography"
     )
     
     for dep in "${CRITICAL_DEPS[@]}"; do
