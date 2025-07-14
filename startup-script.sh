@@ -268,6 +268,7 @@ install_critical_python_dependencies() {
         "numpy"
         "babel"
         "lxml"
+        "lxml_html_clean"
         "Pillow"
         "python-dateutil"
         "psycopg2-binary"
@@ -379,6 +380,7 @@ install_odoo_from_source() {
     print_message "Verificando instalación de dependencias críticas..."
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import babel; print(\"babel OK\")'" || print_warning "babel no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import lxml; print(\"lxml OK\")'" || print_warning "lxml no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import lxml_html_clean; print(\"lxml_html_clean OK\")'" || print_warning "lxml_html_clean no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import PIL; print(\"Pillow OK\")'" || print_warning "Pillow no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import psycopg2; print(\"psycopg2 OK\")'" || print_warning "psycopg2 no instalado correctamente"
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import reportlab; print(\"reportlab OK\")'" || print_warning "reportlab no instalado correctamente"
@@ -684,7 +686,7 @@ sudo -u odoo psql -h localhost -p 5432 -U odoo postgres -c "SELECT version();" 2
 
 echo
 echo "--- Dependencias Python críticas ---"
-DEPS=("babel" "lxml" "PIL" "psycopg2" "reportlab" "requests")
+DEPS=("babel" "lxml" "lxml_html_clean" "PIL" "psycopg2" "reportlab" "requests")
 for dep in "${DEPS[@]}"; do
     if sudo -u odoo bash -c "source /opt/odoo/odoo-venv/bin/activate && python -c 'import $dep' 2>/dev/null"; then
         echo "✓ $dep OK"
