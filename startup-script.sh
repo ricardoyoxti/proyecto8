@@ -400,26 +400,38 @@ wait_for_odoo() {
     log "⏳ Esperando que Odoo inicie..."
     
     while [ $attempt -le $max_attempts ]; do
+        # Verificar si el servicio está activo
         if systemctl is-active --quiet odoo; then
-            # Verificar también que el puerto esté escuchando
-            if netstat -tuln 2>/dev/null | grep -q ":$ODOO_PORT "; then
-                log "✅ Odoo está ejecutándose y escuchando en puerto $ODOO_PORT"
-                return 0
+            # Verificar si el puerto está escuchando (más flexible)
+            if ss -tuln 2>/dev/null | grep -q ":$ODOO_PORT " || netstat -tuln 2>/dev/null | grep -q ":$ODOO_PORT "; then
+                # Verificar que el log muestre el mensaje de HTTP service running
+                if [ -f /var/log/odoo/odoo.log ] && grep -q "HTTP service.*running" /var/log/odoo/odoo.log; then
+                    log "✅ Odoo está ejecutándose y escuchando en puerto $ODOO_PORT"
+                    return 0
+                fi
             fi
         fi
         
-        if [ $((attempt % 10)) -eq 0 ]; then
+        # Mostrar progreso cada 5 intentos en lugar de 10
+        if [ $((attempt % 5)) -eq 0 ]; then
             log "⏳ Esperando que Odoo inicie... (intento $attempt/$max_attempts)"
             # Mostrar últimas líneas del log para diagnóstico
             if [ -f /var/log/odoo/odoo.log ]; then
                 info "Últimas líneas del log:"
-                tail -5 /var/log/odoo/odoo.log
+                tail -3 /var/log/odoo/odoo.log
             fi
         fi
         
         sleep 2
         ((attempt++))
     done
+    
+    # Si llegamos aquí, verificar si realmente está funcionando
+    if systemctl is-active --quiet odoo && (ss -tuln 2>/dev/null | grep -q ":$ODOO_PORT " || netstat -tuln 2>/dev/null | grep -q ":$ODOO_PORT "); then
+        warn "Odoo parece estar funcionando pero la verificación falló"
+        log "✅ Continuando porque Odoo está activo y el puerto está escuchando"
+        return 0
+    fi
     
     error "Odoo no pudo iniciarse después de $max_attempts intentos"
     systemctl status odoo --no-pager -l
