@@ -2,7 +2,7 @@
 
 # Script de instalación de Odoo 18 Community con PostgreSQL
 # Compatible con Ubuntu 20.04/22.04 y Debian 11/12
-# Versión mejorada para GCP startup script
+# Versión mejorada para GCP startup script con dependencias adicionales
 
 set -e  # Salir si hay algún error
 
@@ -86,7 +86,10 @@ install_basic_dependencies() {
         lsb-release \
         git \
         unzip \
-        xz-utils
+        xz-utils \
+        vim \
+        htop \
+        tree
     
     # Herramientas de desarrollo
     apt install -y \
@@ -95,7 +98,10 @@ install_basic_dependencies() {
         g++ \
         make \
         cmake \
-        pkg-config
+        pkg-config \
+        autoconf \
+        automake \
+        libtool
     
     # Dependencias de Python
     apt install -y \
@@ -105,9 +111,14 @@ install_basic_dependencies() {
         python3-venv \
         python3-wheel \
         python3-setuptools \
-        python3-distutils
+        python3-distutils \
+        python3-babel \
+        python3-dateutil \
+        python3-requests \
+        python3-lxml \
+        python3-pil
    
-    # Librerías del sistema para dependencias de Python
+    # Librerías del sistema para dependencias de Python (AMPLIADAS)
     apt install -y \
         libxml2-dev \
         libxslt1-dev \
@@ -130,14 +141,26 @@ install_basic_dependencies() {
         libxcb1-dev \
         libglib2.0-dev \
         libcairo2-dev \
-        libgirepository1.0-dev
+        libgirepository1.0-dev \
+        libjpeg8-dev \
+        libtiff5-dev \
+        libopenjp2-7-dev \
+        libzip-dev \
+        libmagic-dev \
+        libcups2-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        libncurses5-dev \
+        libgdbm-dev \
+        libnss3-dev \
+        libfontconfig1-dev
     
     # Node.js y npm
     apt install -y nodejs npm
     npm install -g less less-plugin-clean-css
     
-    # wkhtmltopdf
-    apt install -y wkhtmltopdf
+    # wkhtmltopdf (versión actualizada)
+    apt install -y wkhtmltopdf xvfb
     
     # Actualizar pip y herramientas de Python
     python3 -m pip install --upgrade pip
@@ -232,6 +255,72 @@ configure_postgresql_for_odoo() {
     print_message "PostgreSQL configurado para Odoo"
 }
 
+# Función para instalar dependencias críticas de Python por separado
+install_critical_python_dependencies() {
+    print_step "Instalando dependencias críticas de Python..."
+    
+    # Activar el entorno virtual para las instalaciones
+    source $ODOO_HOME/odoo-venv/bin/activate
+    
+    # Lista de dependencias críticas con versiones específicas cuando sea necesario
+    CRITICAL_DEPS=(
+        "Cython"
+        "numpy"
+        "babel"
+        "lxml"
+        "Pillow"
+        "python-dateutil"
+        "psycopg2-binary"
+        "reportlab"
+        "requests"
+        "pytz"
+        "decorator"
+        "docutils"
+        "feedparser"
+        "gevent"
+        "greenlet"
+        "jinja2"
+        "libsass"
+        "markupsafe"
+        "num2words"
+        "ofxparse"
+        "passlib"
+        "polib"
+        "pydot"
+        "pypdf2"
+        "pyserial"
+        "python-stdnum"
+        "qrcode"
+        "urllib3"
+        "vobject"
+        "werkzeug"
+        "xlsxwriter"
+        "xlwt"
+        "zeep"
+        "chardet"
+        "cryptography"
+        "idna"
+        "pyopenssl"
+        "python-ldap"
+        "suds-py3"
+        "xlrd"
+        "ebaysdk"
+        "freezegun"
+        "geoip2"
+        "pyusb"
+    )
+    
+    # Instalar cada dependencia crítica individualmente
+    for dep in "${CRITICAL_DEPS[@]}"; do
+        print_message "Instalando dependencia crítica: $dep"
+        sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --no-cache-dir --timeout=1000 '$dep'" || {
+            print_warning "Error instalando $dep, pero continuando..."
+        }
+    done
+    
+    print_message "Dependencias críticas de Python instaladas"
+}
+
 # Función para instalar Odoo desde fuente (MEJORADA)
 install_odoo_from_source() {
     print_step "Descargando e instalando Odoo 18 desde fuente..."
@@ -259,10 +348,8 @@ install_odoo_from_source() {
     print_message "Instalando wheel y setuptools..."
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --upgrade setuptools wheel"
     
-    # Instalar dependencias específicas problemáticas por separado
-    print_message "Instalando dependencias específicas..."
-    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install Cython"
-    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install numpy"
+    # Instalar dependencias críticas antes del requirements.txt
+    install_critical_python_dependencies
     
     # Crear un requirements.txt modificado para evitar problemas
     print_message "Preparando requirements.txt..."
@@ -276,13 +363,26 @@ install_odoo_from_source() {
         # Instalar dependencias una por una en caso de error
         while IFS= read -r requirement; do
             if [[ ! -z "$requirement" && ! "$requirement" =~ ^# ]]; then
-                print_message "Instalando: $requirement"
-                sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --no-cache-dir '$requirement'" || {
-                    print_warning "Error instalando $requirement, continuando..."
-                }
+                # Limpiar la línea de requirement
+                requirement=$(echo "$requirement" | sed 's/[[:space:]]*$//' | sed 's/^[[:space:]]*//')
+                if [[ ! -z "$requirement" ]]; then
+                    print_message "Instalando: $requirement"
+                    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --no-cache-dir --timeout=1000 '$requirement'" || {
+                        print_warning "Error instalando $requirement, continuando..."
+                    }
+                fi
             fi
         done < requirements.txt
     }
+    
+    # Verificar instalación de dependencias críticas
+    print_message "Verificando instalación de dependencias críticas..."
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import babel; print(\"babel OK\")'" || print_warning "babel no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import lxml; print(\"lxml OK\")'" || print_warning "lxml no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import PIL; print(\"Pillow OK\")'" || print_warning "Pillow no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import psycopg2; print(\"psycopg2 OK\")'" || print_warning "psycopg2 no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import reportlab; print(\"reportlab OK\")'" || print_warning "reportlab no instalado correctamente"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import requests; print(\"requests OK\")'" || print_warning "requests no instalado correctamente"
     
     # Crear directorios necesarios
     mkdir -p $ODOO_LOG_DIR
@@ -320,6 +420,13 @@ max_cron_threads = 1
 without_demo = True
 list_db = True
 proxy_mode = False
+; Configuraciones adicionales de rendimiento
+limit_memory_hard = 2147483648
+limit_memory_soft = 1073741824
+limit_request = 8192
+limit_time_cpu = 600
+limit_time_real = 1200
+limit_time_real_cron = 1200
 EOF
     
     chown $ODOO_USER:$ODOO_USER $ODOO_CONFIG_FILE
@@ -350,6 +457,9 @@ StandardOutput=journal+console
 Restart=always
 RestartSec=10
 KillMode=mixed
+Environment=PATH="/opt/odoo/odoo-venv/bin:$PATH"
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
 
 [Install]
 WantedBy=multi-user.target
@@ -370,10 +480,15 @@ configure_firewall() {
         ufw allow $ODOO_PORT/tcp
         ufw allow $ODOO_LONGPOLL_PORT/tcp
         ufw allow ssh
+        ufw allow 80/tcp
+        ufw allow 443/tcp
         print_message "Firewall configurado con ufw"
     elif command -v firewall-cmd &> /dev/null; then
         firewall-cmd --permanent --add-port=$ODOO_PORT/tcp
         firewall-cmd --permanent --add-port=$ODOO_LONGPOLL_PORT/tcp
+        firewall-cmd --permanent --add-service=ssh
+        firewall-cmd --permanent --add-service=http
+        firewall-cmd --permanent --add-service=https
         firewall-cmd --reload
         print_message "Firewall configurado con firewall-cmd"
     else
@@ -433,6 +548,14 @@ server {
     gzip_buffers 4 32k;
     gzip_types text/plain application/x-javascript text/xml text/css;
     gzip_vary on;
+    
+    # Configuraciones adicionales de seguridad
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+    
+    # Limitar el tamaño de carga de archivos
+    client_max_body_size 100M;
 }
 EOF
     
@@ -446,7 +569,7 @@ EOF
     print_message "Nginx configurado como proxy reverso"
 }
 
-# Función para verificar la instalación
+# Función para verificar la instalación (MEJORADA)
 verify_installation() {
     print_step "Verificando instalación..."
     
@@ -459,10 +582,33 @@ verify_installation() {
     fi
     
     # Verificar que se pueden importar las dependencias principales
-    if sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import psycopg2; import lxml; import PIL; print(\"Dependencias principales OK\")'"; then
-        print_message "Dependencias principales verificadas"
+    print_message "Verificando dependencias principales..."
+    DEPENDENCIES_OK=true
+    
+    # Lista de dependencias críticas a verificar
+    DEPS_TO_CHECK=("psycopg2" "lxml" "PIL" "babel" "dateutil" "requests" "reportlab")
+    
+    for dep in "${DEPS_TO_CHECK[@]}"; do
+        if sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import $dep' 2>/dev/null"; then
+            print_message "✓ $dep instalado correctamente"
+        else
+            print_warning "✗ $dep no se pudo importar"
+            DEPENDENCIES_OK=false
+        fi
+    done
+    
+    if [ "$DEPENDENCIES_OK" = true ]; then
+        print_message "Todas las dependencias principales verificadas correctamente"
     else
-        print_warning "Algunas dependencias pueden tener problemas"
+        print_warning "Algunas dependencias pueden tener problemas, pero continuando..."
+    fi
+    
+    # Verificar que Odoo se puede importar sin errores críticos
+    print_message "Verificando importación de Odoo..."
+    if sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && cd $ODOO_HOME/odoo && python -c 'import odoo' 2>/dev/null"; then
+        print_message "✓ Odoo se puede importar correctamente"
+    else
+        print_warning "✗ Problemas al importar Odoo"
     fi
 }
 
@@ -491,8 +637,14 @@ show_final_info() {
     echo
     echo "Acceso web:"
     echo "  - URL: http://$(hostname -I | awk '{print $1}'):$ODOO_PORT"
+    echo "  - URL con Nginx: http://$(hostname -I | awk '{print $1}')"
     echo "  - Usuario admin: admin"
     echo "  - Contraseña: (la que configures en la primera conexión)"
+    echo
+    echo "Dependencias instaladas:"
+    echo "  - Python $(python3 --version)"
+    echo "  - PostgreSQL $(sudo -u postgres psql --version | head -1)"
+    echo "  - Nginx $(nginx -v 2>&1)"
     echo
     echo "==============================================="
     echo
@@ -506,13 +658,65 @@ INSTALLATION_DATE=$(date)
 ODOO_VERSION=$ODOO_VERSION
 ODOO_PORT=$ODOO_PORT
 ODOO_URL=http://$(hostname -I | awk '{print $1}'):$ODOO_PORT
+NGINX_URL=http://$(hostname -I | awk '{print $1}')
+CRITICAL_DEPENDENCIES=babel,lxml,Pillow,psycopg2,reportlab,requests
 EOF
     print_message "Archivo de estado creado en /var/log/odoo-installation-status.log"
 }
 
+# Función para crear script de diagnóstico
+create_diagnostic_script() {
+    print_step "Creando script de diagnóstico..."
+    
+    cat > /usr/local/bin/odoo-diagnostics << 'EOF'
+#!/bin/bash
+
+echo "=== DIAGNÓSTICO DE ODOO 18 ==="
+echo "Fecha: $(date)"
+echo
+
+echo "--- Estado del servicio ---"
+systemctl status odoo --no-pager
+
+echo
+echo "--- Conexión a PostgreSQL ---"
+sudo -u odoo psql -h localhost -p 5432 -U odoo postgres -c "SELECT version();" 2>/dev/null || echo "Error en conexión a PostgreSQL"
+
+echo
+echo "--- Dependencias Python críticas ---"
+DEPS=("babel" "lxml" "PIL" "psycopg2" "reportlab" "requests")
+for dep in "${DEPS[@]}"; do
+    if sudo -u odoo bash -c "source /opt/odoo/odoo-venv/bin/activate && python -c 'import $dep' 2>/dev/null"; then
+        echo "✓ $dep OK"
+    else
+        echo "✗ $dep ERROR"
+    fi
+done
+
+echo
+echo "--- Últimos logs ---"
+journalctl -u odoo --no-pager -n 10
+
+echo
+echo "--- Puertos ---"
+netstat -tlnp | grep -E ":8069|:8072|:80|:5432"
+
+echo
+echo "--- Espacio en disco ---"
+df -h | grep -E "/$|/opt|/var"
+
+echo
+echo "--- Memoria ---"
+free -h
+EOF
+    
+    chmod +x /usr/local/bin/odoo-diagnostics
+    print_message "Script de diagnóstico creado en /usr/local/bin/odoo-diagnostics"
+}
+
 # Función principal
 main() {
-    print_message "Iniciando instalación de Odoo 18 Community..."
+    print_message "Iniciando instalación de Odoo 18 Community con dependencias mejoradas..."
     
     detect_os
     update_system
@@ -526,6 +730,7 @@ main() {
     create_systemd_service
     configure_firewall
     install_nginx
+    create_diagnostic_script
     
     # Iniciar Odoo
     print_step "Iniciando servicio Odoo..."
@@ -543,14 +748,133 @@ main() {
         # Mostrar los últimos logs para debugging
         print_message "Últimos logs de Odoo:"
         journalctl -u odoo --no-pager -n 20
+        
+        # Intentar diagnóstico automático
+        print_message "Ejecutando diagnóstico automático..."
+        /usr/local/bin/odoo-diagnostics
+        
         exit 1
     fi
     
     show_final_info
     
     print_message "¡Instalación completada! Odoo 18 Community está listo para usar."
+    print_message "Para diagnóstico posterior, ejecuta: /usr/local/bin/odoo-diagnostics"
     echo "=== FIN DEL SCRIPT DE INSTALACIÓN $(date) ==="
 }
 
-# Ejecutar función principal
+# Función para mostrar ayuda
+show_help() {
+    echo "Script de instalación de Odoo 18 Community"
+    echo "Uso: $0 [opciones]"
+    echo
+    echo "Opciones:"
+    echo "  -h, --help           Mostrar esta ayuda"
+    echo "  -v, --version        Mostrar versión del script"
+    echo "  --skip-nginx         Saltar instalación de Nginx"
+    echo "  --skip-firewall      Saltar configuración de firewall"
+    echo "  --postgres-version   Especificar versión de PostgreSQL (default: 15)"
+    echo "  --odoo-port          Especificar puerto de Odoo (default: 8069)"
+    echo
+    echo "Ejemplo:"
+    echo "  $0 --postgres-version 14 --odoo-port 8080"
+}
+
+# Función para parsear argumentos
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -v|--version)
+                echo "Script de instalación Odoo 18 - Versión 2.0"
+                exit 0
+                ;;
+            --skip-nginx)
+                SKIP_NGINX=true
+                shift
+                ;;
+            --skip-firewall)
+                SKIP_FIREWALL=true
+                shift
+                ;;
+            --postgres-version)
+                POSTGRESQL_VERSION="$2"
+                shift 2
+                ;;
+            --odoo-port)
+                ODOO_PORT="$2"
+                shift 2
+                ;;
+            *)
+                print_error "Opción desconocida: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Función principal modificada
+main() {
+    print_message "Iniciando instalación de Odoo 18 Community con dependencias mejoradas..."
+    
+    detect_os
+    update_system
+    install_basic_dependencies
+    install_postgresql
+    create_odoo_system_user
+    configure_postgresql_for_odoo
+    install_odoo_from_source
+    verify_installation
+    create_odoo_config
+    create_systemd_service
+    
+    # Configurar firewall si no se especifica saltar
+    if [[ "${SKIP_FIREWALL:-false}" != "true" ]]; then
+        configure_firewall
+    fi
+    
+    # Instalar Nginx si no se especifica saltar
+    if [[ "${SKIP_NGINX:-false}" != "true" ]]; then
+        install_nginx
+    fi
+    
+    create_diagnostic_script
+    
+    # Iniciar Odoo
+    print_step "Iniciando servicio Odoo..."
+    systemctl start odoo
+    
+    # Esperar un momento para que inicie
+    sleep 15
+    
+    # Verificar estado
+    if systemctl is-active --quiet odoo; then
+        print_message "Odoo iniciado correctamente"
+        create_installation_status
+    else
+        print_error "Error al iniciar Odoo. Revisa los logs con: journalctl -u odoo -f"
+        # Mostrar los últimos logs para debugging
+        print_message "Últimos logs de Odoo:"
+        journalctl -u odoo --no-pager -n 20
+        
+        # Intentar diagnóstico automático
+        print_message "Ejecutando diagnóstico automático..."
+        /usr/local/bin/odoo-diagnostics
+        
+        exit 1
+    fi
+    
+    show_final_info
+    
+    print_message "¡Instalación completada! Odoo 18 Community está listo para usar."
+    print_message "Para diagnóstico posterior, ejecuta: /usr/local/bin/odoo-diagnostics"
+    echo "=== FIN DEL SCRIPT DE INSTALACIÓN $(date) ==="
+}
+
+# Parsear argumentos y ejecutar función principal
+parse_arguments "$@"
 main "$@"
