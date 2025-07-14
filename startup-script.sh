@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Script completo para instalación de Odoo 18 Community en Ubuntu/Debian
-# Incluye todas las dependencias necesarias para evitar errores de módulos faltantes
+# Script corregido para instalación de Odoo 18 Community
+# Soluciona problemas de compilación con gevent y otras dependencias
 # Autor: Asistente de Claude
 # Fecha: $(date)
 
@@ -45,13 +45,13 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-show_header "INSTALACIÓN COMPLETA DE ODOO 18 COMMUNITY"
+show_header "INSTALACIÓN CORREGIDA DE ODOO 18 COMMUNITY"
 
 # Actualizar sistema
 show_header "Actualizando sistema"
 apt update && apt upgrade -y
 
-# Instalar dependencias del sistema
+# Instalar dependencias del sistema (incluyendo todas las necesarias para compilación)
 show_header "Instalando dependencias del sistema"
 apt install -y \
     python3 \
@@ -60,10 +60,21 @@ apt install -y \
     python3-dev \
     python3-setuptools \
     python3-wheel \
+    python3-babel \
+    python3-lxml \
+    python3-pil \
+    python3-psycopg2 \
+    python3-requests \
+    python3-werkzeug \
+    python3-jinja2 \
     git \
     wget \
     curl \
     build-essential \
+    gcc \
+    g++ \
+    make \
+    libc6-dev \
     libxml2-dev \
     libxslt1-dev \
     libevent-dev \
@@ -88,12 +99,17 @@ apt install -y \
     libgdbm-dev \
     libnss3-dev \
     liblzma-dev \
+    libev-dev \
+    libevdev-dev \
+    libevent-dev \
     fontconfig \
     xfonts-75dpi \
     xfonts-base \
     wkhtmltopdf \
     nodejs \
-    npm
+    npm \
+    cython3 \
+    pkg-config
 
 # Instalar PostgreSQL
 show_header "Instalando PostgreSQL"
@@ -140,22 +156,37 @@ show_header "Creando entorno virtual de Python"
 sudo -u $ODOO_USER python3 -m venv $ODOO_HOME/venv
 show_message "Entorno virtual creado"
 
-# Actualizar pip en el entorno virtual
-show_message "Actualizando pip en el entorno virtual..."
-sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --upgrade pip setuptools wheel
+# Actualizar pip, setuptools y wheel
+show_message "Actualizando herramientas básicas..."
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --upgrade pip
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --upgrade setuptools wheel cython
 
-# Instalar dependencias básicas de Python
-show_header "Instalando dependencias básicas de Python"
-sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install \
-    setuptools \
-    wheel \
-    pip-tools
+# Instalar dependencias problemáticas con versiones específicas
+show_header "Instalando dependencias problemáticas con versiones específicas"
 
-# Lista completa de dependencias de Odoo 18
-show_header "Instalando dependencias específicas de Odoo 18"
-show_message "Instalando dependencias críticas..."
+# Instalar gevent con versión específica y pre-compilada
+show_message "Instalando gevent pre-compilado..."
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --only-binary=all gevent==23.9.1 || \
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --only-binary=all gevent
 
-# Dependencias críticas primero
+# Instalar greenlet pre-compilado
+show_message "Instalando greenlet pre-compilado..."
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --only-binary=all greenlet
+
+# Instalar lxml pre-compilado
+show_message "Instalando lxml pre-compilado..."
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --only-binary=all lxml
+
+# Instalar pillow pre-compilado
+show_message "Instalando pillow pre-compilado..."
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install --only-binary=all pillow
+
+# Instalar psycopg2 pre-compilado
+show_message "Instalando psycopg2 pre-compilado..."
+sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install psycopg2-binary
+
+# Instalar otras dependencias críticas
+show_header "Instalando dependencias críticas"
 CRITICAL_DEPS=(
     "babel>=2.6.0"
     "chardet"
@@ -163,28 +194,22 @@ CRITICAL_DEPS=(
     "decorator"
     "docutils"
     "feedparser"
-    "gevent"
-    "greenlet"
-    "jinja2"
-    "lxml"
-    "markupsafe"
-    "pillow"
-    "psutil"
-    "psycopg2-binary"
+    "jinja2>=2.10.1"
+    "markupsafe>=2.0.0"
     "python-dateutil"
     "pytz"
     "requests"
     "urllib3"
-    "werkzeug"
+    "werkzeug>=2.0.0"
 )
 
 for dep in "${CRITICAL_DEPS[@]}"; do
     show_message "Instalando $dep..."
-    sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install "$dep"
+    sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install "$dep" --prefer-binary
 done
 
-# Dependencias adicionales de Odoo
-show_message "Instalando dependencias adicionales..."
+# Instalar dependencias adicionales con manejo de errores
+show_header "Instalando dependencias adicionales"
 ADDITIONAL_DEPS=(
     "ebaysdk"
     "freezegun"
@@ -212,26 +237,36 @@ ADDITIONAL_DEPS=(
 
 for dep in "${ADDITIONAL_DEPS[@]}"; do
     show_message "Instalando $dep..."
-    sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install "$dep" || show_warning "Error instalando $dep, continuando..."
+    if ! sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install "$dep" --prefer-binary; then
+        show_warning "Error instalando $dep, intentando sin binarios pre-compilados..."
+        sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install "$dep" --no-binary=:all: || show_warning "No se pudo instalar $dep, continuando..."
+    fi
 done
 
 # Instalar dependencias desde requirements.txt si existe
 if [ -f "$ODOO_HOME/odoo/requirements.txt" ]; then
     show_message "Instalando dependencias desde requirements.txt..."
-    sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install -r $ODOO_HOME/odoo/requirements.txt
+    sudo -u $ODOO_USER $ODOO_HOME/venv/bin/pip install -r $ODOO_HOME/odoo/requirements.txt --prefer-binary || show_warning "Algunos paquetes del requirements.txt fallaron"
 fi
 
 # Verificar instalación de dependencias críticas
 show_header "Verificando instalación de dependencias críticas"
-VERIFY_DEPS=("babel" "lxml" "psycopg2" "pillow" "werkzeug" "jinja2" "markupsafe")
+VERIFY_DEPS=("babel" "lxml" "psycopg2" "pillow" "werkzeug" "jinja2" "markupsafe" "gevent" "greenlet")
 
+all_ok=true
 for dep in "${VERIFY_DEPS[@]}"; do
-    if sudo -u $ODOO_USER $ODOO_HOME/venv/bin/python -c "import $dep" 2>/dev/null; then
+    if sudo -u $ODOO_USER $ODOO_HOME/venv/bin/python -c "import $dep; print('✓ $dep version:', getattr($dep, '__version__', 'unknown'))" 2>/dev/null; then
         show_message "✓ $dep está disponible"
     else
         show_error "✗ $dep no está disponible"
+        all_ok=false
     fi
 done
+
+if [ "$all_ok" = false ]; then
+    show_error "Algunas dependencias críticas no están disponibles"
+    show_message "Continuando con la instalación..."
+fi
 
 # Crear archivo de configuración de Odoo
 show_header "Creando archivo de configuración de Odoo"
@@ -247,8 +282,8 @@ addons_path = $ODOO_HOME/odoo/addons,$ODOO_HOME/custom-addons
 logfile = $ODOO_HOME/log/odoo.log
 log_level = info
 ; Configuración para entorno de producción
-workers = 4
-max_cron_threads = 2
+workers = 2
+max_cron_threads = 1
 limit_memory_hard = 2684354560
 limit_memory_soft = 2147483648
 limit_time_cpu = 60
@@ -261,13 +296,6 @@ list_db = False
 proxy_mode = False
 ; Configuración de archivos
 data_dir = $ODOO_HOME/.local/share/Odoo
-; Configuración de email (opcional)
-; email_from = odoo@yourcompany.com
-; smtp_server = localhost
-; smtp_port = 25
-; smtp_ssl = False
-; smtp_user = False
-; smtp_password = False
 EOF
 
 chown $ODOO_USER:$ODOO_USER $ODOO_CONFIG
@@ -288,6 +316,7 @@ Type=simple
 User=$ODOO_USER
 Group=$ODOO_USER
 Environment=PATH=$ODOO_HOME/venv/bin
+Environment=PYTHONPATH=$ODOO_HOME/venv/lib/python3.11/site-packages
 ExecStart=$ODOO_HOME/venv/bin/python $ODOO_HOME/odoo/odoo-bin -c $ODOO_CONFIG
 WorkingDirectory=$ODOO_HOME
 StandardOutput=journal+console
@@ -311,12 +340,15 @@ chown -R $ODOO_USER:$ODOO_USER $ODOO_HOME
 chmod -R 755 $ODOO_HOME
 chmod 750 $ODOO_HOME/log
 
+# Crear directorio de datos
+sudo -u $ODOO_USER mkdir -p $ODOO_HOME/.local/share/Odoo
+
 # Recargar systemd y habilitar servicio
 show_message "Habilitando servicio de Odoo..."
 systemctl daemon-reload
 systemctl enable $ODOO_SERVICE
 
-# Crear script de inicio rápido
+# Crear scripts de utilidad
 show_header "Creando scripts de utilidad"
 cat > /usr/local/bin/odoo-start << 'EOF'
 #!/bin/bash
@@ -341,6 +373,12 @@ cat > /usr/local/bin/odoo-logs << 'EOF'
 sudo journalctl -u odoo -f
 EOF
 
+cat > /usr/local/bin/odoo-test << 'EOF'
+#!/bin/bash
+echo "Probando Odoo manualmente..."
+sudo -u odoo /opt/odoo/venv/bin/python /opt/odoo/odoo/odoo-bin -c /etc/odoo.conf --stop-after-init
+EOF
+
 chmod +x /usr/local/bin/odoo-*
 
 # Configurar firewall (si está activo)
@@ -350,23 +388,33 @@ if command -v ufw &> /dev/null; then
     show_message "Puerto 8069 abierto en UFW"
 fi
 
+# Probar Odoo manualmente antes de iniciar el servicio
+show_header "Probando Odoo manualmente"
+show_message "Ejecutando prueba de Odoo..."
+if sudo -u $ODOO_USER $ODOO_HOME/venv/bin/python $ODOO_HOME/odoo/odoo-bin -c $ODOO_CONFIG --stop-after-init; then
+    show_message "✓ Prueba manual exitosa"
+else
+    show_error "✗ Prueba manual falló"
+    show_message "Revisando configuración..."
+fi
+
 # Iniciar servicio de Odoo
 show_header "Iniciando servicio de Odoo"
 systemctl start $ODOO_SERVICE
 
 # Esperar un poco y verificar estado
-sleep 10
+sleep 15
 if systemctl is-active $ODOO_SERVICE &>/dev/null; then
     show_message "✓ Servicio de Odoo iniciado correctamente"
 else
     show_error "✗ Servicio de Odoo no está funcionando"
     show_message "Revisando logs..."
-    journalctl -u $ODOO_SERVICE --no-pager --lines=20
+    journalctl -u $ODOO_SERVICE --no-pager --lines=30
 fi
 
 # Información final
 show_header "INSTALACIÓN COMPLETADA"
-echo -e "${GREEN}Odoo 18 Community ha sido instalado exitosamente${NC}"
+echo -e "${GREEN}Odoo 18 Community ha sido instalado${NC}"
 echo ""
 echo -e "${BLUE}Información de acceso:${NC}"
 echo -e "  URL: ${GREEN}http://$(hostname -I | awk '{print $1}'):8069${NC}"
@@ -378,25 +426,10 @@ echo -e "  Iniciar Odoo: ${GREEN}odoo-start${NC}"
 echo -e "  Detener Odoo: ${GREEN}odoo-stop${NC}"
 echo -e "  Reiniciar Odoo: ${GREEN}odoo-restart${NC}"
 echo -e "  Ver logs: ${GREEN}odoo-logs${NC}"
+echo -e "  Probar Odoo: ${GREEN}odoo-test${NC}"
 echo ""
-echo -e "${BLUE}Archivos importantes:${NC}"
-echo -e "  Configuración: ${GREEN}$ODOO_CONFIG${NC}"
-echo -e "  Logs: ${GREEN}$ODOO_HOME/log/odoo.log${NC}"
-echo -e "  Addons personalizados: ${GREEN}$ODOO_HOME/custom-addons${NC}"
-echo ""
-echo -e "${BLUE}Servicio systemd:${NC}"
-echo -e "  Estado: ${GREEN}systemctl status odoo${NC}"
-echo -e "  Iniciar: ${GREEN}systemctl start odoo${NC}"
-echo -e "  Detener: ${GREEN}systemctl stop odoo${NC}"
-echo -e "  Reiniciar: ${GREEN}systemctl restart odoo${NC}"
-echo -e "  Logs: ${GREEN}journalctl -u odoo -f${NC}"
-echo ""
-echo -e "${YELLOW}¡Recuerda cambiar las contraseñas por defecto en producción!${NC}"
-
-# Verificación final
-show_header "VERIFICACIÓN FINAL"
+echo -e "${BLUE}Verificación final:${NC}"
 echo "Estado del servicio:"
 systemctl status $ODOO_SERVICE --no-pager
 echo ""
-echo "Últimas líneas del log:"
-journalctl -u $ODOO_SERVICE --no-pager --lines=10
+echo "Si hay problemas, ejecuta: odoo-logs"
