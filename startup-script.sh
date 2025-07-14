@@ -2,7 +2,7 @@
 
 # Script de instalación de Odoo 18 Community con PostgreSQL
 # Compatible con Ubuntu 20.04/22.04 y Debian 11/12
-# Versión automatizada para GCP startup script
+# Versión mejorada para GCP startup script
 
 set -e  # Salir si hay algún error
 
@@ -47,6 +47,10 @@ POSTGRESQL_VERSION="15"
 ODOO_PORT="8069"
 ODOO_LONGPOLL_PORT="8072"
 
+# Variables de entorno para evitar prompts interactivos
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 # Función para detectar el sistema operativo
 detect_os() {
     if [[ -f /etc/os-release ]]; then
@@ -67,9 +71,11 @@ update_system() {
     print_message "Sistema actualizado correctamente"
 }
 
-# Función para instalar dependencias básicas
+# Función para instalar dependencias básicas (MEJORADA)
 install_basic_dependencies() {
     print_step "Instalando dependencias básicas..."
+    
+    # Instalar dependencias del sistema en orden específico
     apt install -y \
         wget \
         curl \
@@ -79,11 +85,30 @@ install_basic_dependencies() {
         ca-certificates \
         lsb-release \
         git \
+        unzip \
+        xz-utils
+    
+    # Herramientas de desarrollo
+    apt install -y \
         build-essential \
+        gcc \
+        g++ \
+        make \
+        cmake \
+        pkg-config
+    
+    # Dependencias de Python
+    apt install -y \
+        python3 \
         python3-dev \
         python3-pip \
         python3-venv \
         python3-wheel \
+        python3-setuptools \
+        python3-distutils
+    
+    # Librerías del sistema para dependencias de Python
+    apt install -y \
         libxml2-dev \
         libxslt1-dev \
         libevent-dev \
@@ -95,13 +120,28 @@ install_basic_dependencies() {
         libfreetype6-dev \
         zlib1g-dev \
         libgeoip-dev \
-        python3-setuptools \
-        node-less \
-        npm \
-        xz-utils \
-        fontconfig \
-        libfontconfig1 \
-        wkhtmltopdf
+        libyaml-dev \
+        libssl-dev \
+        libffi-dev \
+        liblcms2-dev \
+        libwebp-dev \
+        libharfbuzz-dev \
+        libfribidi-dev \
+        libxcb1-dev \
+        libglib2.0-dev \
+        libcairo2-dev \
+        libgirepository1.0-dev
+    
+    # Node.js y npm
+    apt install -y nodejs npm
+    npm install -g less less-plugin-clean-css
+    
+    # wkhtmltopdf
+    apt install -y wkhtmltopdf
+    
+    # Actualizar pip y herramientas de Python
+    python3 -m pip install --upgrade pip
+    python3 -m pip install --upgrade setuptools wheel
     
     print_message "Dependencias básicas instaladas"
 }
@@ -192,7 +232,7 @@ configure_postgresql_for_odoo() {
     print_message "PostgreSQL configurado para Odoo"
 }
 
-# Función para instalar Odoo desde fuente
+# Función para instalar Odoo desde fuente (MEJORADA)
 install_odoo_from_source() {
     print_step "Descargando e instalando Odoo 18 desde fuente..."
     
@@ -210,9 +250,39 @@ install_odoo_from_source() {
     
     # Activar entorno virtual e instalar dependencias
     cd $ODOO_HOME/odoo
+    
+    # Actualizar pip en el entorno virtual
+    print_message "Actualizando pip en el entorno virtual..."
     sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --upgrade pip"
-    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install wheel"
-    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install -r requirements.txt"
+    
+    # Instalar wheel y setuptools primero
+    print_message "Instalando wheel y setuptools..."
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --upgrade setuptools wheel"
+    
+    # Instalar dependencias específicas problemáticas por separado
+    print_message "Instalando dependencias específicas..."
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install Cython"
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install numpy"
+    
+    # Crear un requirements.txt modificado para evitar problemas
+    print_message "Preparando requirements.txt..."
+    sudo -u $ODOO_USER cp requirements.txt requirements.txt.backup
+    
+    # Instalar requirements con más control de errores
+    print_message "Instalando requirements de Odoo..."
+    sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --no-cache-dir --timeout=1000 -r requirements.txt" || {
+        print_warning "Error en la instalación completa, intentando instalación individual..."
+        
+        # Instalar dependencias una por una en caso de error
+        while IFS= read -r requirement; do
+            if [[ ! -z "$requirement" && ! "$requirement" =~ ^# ]]; then
+                print_message "Instalando: $requirement"
+                sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && pip install --no-cache-dir '$requirement'" || {
+                    print_warning "Error instalando $requirement, continuando..."
+                }
+            fi
+        done < requirements.txt
+    }
     
     # Crear directorios necesarios
     mkdir -p $ODOO_LOG_DIR
@@ -311,7 +381,7 @@ configure_firewall() {
     fi
 }
 
-# Función para instalar nginx (automática, sin interacción)
+# Función para instalar nginx
 install_nginx() {
     print_step "Instalando y configurando Nginx..."
     
@@ -376,6 +446,26 @@ EOF
     print_message "Nginx configurado como proxy reverso"
 }
 
+# Función para verificar la instalación
+verify_installation() {
+    print_step "Verificando instalación..."
+    
+    # Verificar que el entorno virtual funciona
+    if sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python --version"; then
+        print_message "Entorno virtual funciona correctamente"
+    else
+        print_error "Problema con el entorno virtual"
+        exit 1
+    fi
+    
+    # Verificar que se pueden importar las dependencias principales
+    if sudo -u $ODOO_USER bash -c "source $ODOO_HOME/odoo-venv/bin/activate && python -c 'import psycopg2; import lxml; import PIL; print(\"Dependencias principales OK\")'"; then
+        print_message "Dependencias principales verificadas"
+    else
+        print_warning "Algunas dependencias pueden tener problemas"
+    fi
+}
+
 # Función para mostrar información final
 show_final_info() {
     print_step "Información de la instalación:"
@@ -431,6 +521,7 @@ main() {
     create_odoo_system_user
     configure_postgresql_for_odoo
     install_odoo_from_source
+    verify_installation
     create_odoo_config
     create_systemd_service
     configure_firewall
@@ -441,7 +532,7 @@ main() {
     systemctl start odoo
     
     # Esperar un momento para que inicie
-    sleep 10
+    sleep 15
     
     # Verificar estado
     if systemctl is-active --quiet odoo; then
@@ -449,6 +540,9 @@ main() {
         create_installation_status
     else
         print_error "Error al iniciar Odoo. Revisa los logs con: journalctl -u odoo -f"
+        # Mostrar los últimos logs para debugging
+        print_message "Últimos logs de Odoo:"
+        journalctl -u odoo --no-pager -n 20
         exit 1
     fi
     
